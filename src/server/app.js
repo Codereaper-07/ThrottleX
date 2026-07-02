@@ -8,6 +8,8 @@ const errorHandler = require('../middleware/errorHandler');
 
 const app = express();
 
+app.set('trust proxy', true);
+
 app.use(express.json());
 app.use(metrics);
 app.use(healthRoutes);
