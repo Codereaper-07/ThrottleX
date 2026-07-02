@@ -12,5 +12,4 @@ const redisClient = createClient({
     reconnectStrategy: false,
   },
 });
-
 module.exports = redisClient;
