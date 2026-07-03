@@ -22,8 +22,9 @@ The project is **feature-complete for its MVP**. Completed features:
 - Metrics endpoint (`/metrics`, Prometheus exposition format)
 - Centralized error handling and 404 handling
 - Graceful shutdown (`SIGINT`/`SIGTERM` → close HTTP server → disconnect Redis)
+- Centralized, environment-variable-driven rate limiter configuration (bucket capacity, refill rate, TTL) with fail-fast startup validation — see [Configuration](#configuration)
 
-**Not yet implemented** (see [Known Issues](#known-issues) and [Future Improvements](#future-improvements)): rate-limit thresholds are currently hardcoded per policy in code, not exposed via environment variables or an API; no automated test suite.
+**Not yet implemented** (see [Known Issues](#known-issues) and [Future Improvements](#future-improvements)): no automated test suite; only a single global rate-limit policy exists (no per-route or per-user policy configuration).
 
 ## Tech Stack
 
@@ -87,7 +88,7 @@ Requests always enter through Nginx, which forwards everything to the Express ap
 ```
 ThrottleX/
 ├── src/
-│   ├── config/       # env.js (loads/validates env vars), policies.js (rate-limit policies)
+│   ├── config/       # env.js (server/redis env vars), rateLimiterConfig.js (rate-limit thresholds), policies.js (assembles policy objects)
 │   ├── controllers/  # reserved for future use — currently empty (logic lives in routes)
 │   ├── errors/        # AppError.js — custom error class for operational errors
 │   ├── metrics/       # prometheus.js — Prometheus metric definitions and registry
@@ -116,7 +117,7 @@ ThrottleX/
 | Method | Path | Description | Success Response | Failure Responses |
 |---|---|---|---|---|
 | `GET` | `/health` | Reports service and Redis connectivity status. Never attempts to reconnect. | `200` `{ "status": "ok", "service": "ThrottleX", "redis": "connected" }` | `200` `{ "status": "degraded", "service": "ThrottleX", "redis": "disconnected" }` when Redis is unreachable |
-| `GET` | `/limited` | Demo endpoint protected by the Token Bucket rate limiter (`demoPolicy`: capacity 5, refill 1 token/sec, keyed by client IP). | `200` `{ "message": "Request accepted" }` with headers `X-RateLimit-Limit`, `X-RateLimit-Remaining` | `429` `{ "error": "Rate limit exceeded" }` with headers `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `Retry-After` |
+| `GET` | `/limited` | Demo endpoint protected by the Token Bucket rate limiter (`demoPolicy`: capacity/refill rate/TTL from `rateLimiterConfig` — defaults 5 capacity, 1 token/sec, keyed by client IP). | `200` `{ "message": "Request accepted" }` with headers `X-RateLimit-Limit`, `X-RateLimit-Remaining` | `429` `{ "error": "Rate limit exceeded" }` with headers `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `Retry-After` |
 | `GET` | `/metrics` | Prometheus scrape target. | `200`, `Content-Type: text/plain; version=0.0.4; charset=utf-8`, body = Prometheus text exposition format | `500` `{ "error": "Internal Server Error" }` on scrape failure |
 | any | `*` (unmatched route) | Fallback for unknown routes. | — | `404` `{ "error": "Route not found" }` |
 | any | `*` (unhandled error) | Centralized error handler. | — | `500` `{ "error": "Internal Server Error" }`, or `<statusCode>` `{ "error": "<message>" }` for operational `AppError`s |
@@ -147,6 +148,23 @@ Exposed at `GET /metrics` via `prom-client`, default registry.
 
 **Why Prometheus and Grafana?** They're the de facto standard pull-based metrics stack for containerized services — the app doesn't need to know anything about who's monitoring it, it just exposes `/metrics` and Prometheus scrapes it on its own schedule. Grafana turns those raw metrics into dashboards that make it possible to see rate-limiting behavior, latency, and resource usage at a glance instead of grepping logs.
 
+## Configuration
+
+ThrottleX is configured entirely through environment variables (loaded via `dotenv`) and validated at startup so an invalid value fails fast instead of causing silent misbehavior.
+
+| Variable | Default | Validated by | Purpose |
+|---|---|---|---|
+| `PORT` | `3000` | `src/config/env.js` | HTTP port the Express server listens on |
+| `REDIS_HOST` | `127.0.0.1` | `src/config/env.js` | Redis server hostname |
+| `REDIS_PORT` | `6379` | `src/config/env.js` | Redis server port |
+| `BUCKET_CAPACITY` | `5` | `src/config/rateLimiterConfig.js` | Max tokens (burst size) per bucket — must be a positive number |
+| `REFILL_RATE` | `1` | `src/config/rateLimiterConfig.js` | Tokens refilled per second — must be a positive number |
+| `BUCKET_TTL` | `10` | `src/config/rateLimiterConfig.js` | Seconds an idle Redis bucket key survives before expiring — must be a positive number |
+
+**Architecture:** `src/config/rateLimiterConfig.js` is the single source of truth for rate-limiter thresholds. It reads `process.env`, validates each value, and exports a frozen (`Object.freeze`) config object — if `BUCKET_CAPACITY`, `REFILL_RATE`, or `BUCKET_TTL` is present but invalid (non-numeric, zero, or negative), the app throws `"<VAR> must be a positive number"` at startup and refuses to boot, rather than silently falling back to a default. `src/config/policies.js` consumes this module to build `demoPolicy` (adding the `identifier` function, which isn't env-driven). No other file reads `process.env` for rate-limiting purposes — `tokenBucketService.js` only ever receives a fully-resolved `policy` object, so adding future parameters (burst size, per-route policies, identifier strategy) only requires touching `rateLimiterConfig.js` and `policies.js`, not the algorithm itself.
+
+Note that the Redis bucket TTL is now an independently configured value, not derived from capacity/refill rate as in an earlier version — the default of `10` seconds was chosen to match what `2 × (capacity / refillRate)` used to compute for the default `capacity: 5, refillRate: 1`, so default behavior is unchanged, but changing `BUCKET_CAPACITY`/`REFILL_RATE` no longer automatically adjusts the TTL — `BUCKET_TTL` must be set deliberately if you change the other two.
+
 ## How to Run
 
 ### Local setup (without Docker)
@@ -155,7 +173,7 @@ Requires a running Redis instance reachable from your machine.
 
 ```bash
 npm install
-cp .env.example .env   # adjust PORT / REDIS_HOST / REDIS_PORT if needed
+cp .env.example .env   # adjust PORT / REDIS_HOST / REDIS_PORT / BUCKET_CAPACITY / REFILL_RATE / BUCKET_TTL if needed
 npm run dev            # nodemon, auto-restarts on file changes
 # or: npm start         # plain node, for a production-like run
 ```
@@ -188,11 +206,12 @@ There is no automated test suite yet (see [Known Issues](#known-issues)); verifi
 curl -i http://localhost:8080/limited
 ```
 
-**Trigger rate limiting:** `demoPolicy` allows 5 requests before refilling at 1/sec, so 6 rapid requests will trip it:
+**Trigger rate limiting:** with default config (`BUCKET_CAPACITY=5`, `REFILL_RATE=1`), 6 rapid requests will trip it:
 ```bash
 for i in $(seq 1 6); do curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8080/limited; done
 # Expect: 200 200 200 200 200 429
 ```
+To test with different thresholds, set `BUCKET_CAPACITY`/`REFILL_RATE`/`BUCKET_TTL` (env var or `.env`) before starting the app — no code changes needed.
 
 **Verify Redis state directly:**
 ```bash
@@ -208,18 +227,17 @@ docker compose exec redis redis-cli
 ## Known Issues
 
 - **No automated test suite.** `tests/` exists but is empty; all verification so far has been manual/exploratory (including mock-Redis-based testing during development, since a live Redis wasn't always available in the dev sandbox).
-- **Rate-limit thresholds are hardcoded**, not configurable via environment variables. `demoPolicy` (`capacity: 5`, `refillRate: 1`) lives in `src/config/policies.js` as a plain object; changing it requires a code change and redeploy, not a config change.
 - **Shared Redis connection for `WATCH`/`MULTI`/`EXEC`.** The app uses a single Redis client connection for all rate-limit transactions. Redis's `WATCH` semantics are per-connection, so under very high concurrent traffic across *different* identifiers on that one connection, there's a theoretical edge case where overlapping transactions could interfere. A per-request isolated connection (or a Lua script for true server-side atomicity) would remove this caveat entirely; it wasn't implemented in order to avoid modifying the existing Redis connection architecture mid-project.
 - **No automatic Redis reconnection after startup.** `reconnectStrategy: false` is set intentionally so the app fails fast at *startup* if Redis is unreachable (instead of hanging forever on the default infinite-retry strategy) — but this also means if Redis drops after the app is already running, the client won't attempt to reconnect on its own; the process would need an external restart (e.g. via an orchestrator) to recover.
 - **No authentication on any endpoint**, including `/metrics`. In a real production deployment, `/metrics` in particular should be restricted to internal network access only.
-- **Single hardcoded policy.** Only one demo policy exists; there's no mechanism yet to apply different rate limits to different routes or user tiers via configuration.
+- **Single global policy.** Only one policy (`demoPolicy`) exists, applied to `/limited` only; there's no mechanism yet to apply different rate limits to different routes or user tiers — `BUCKET_CAPACITY`/`REFILL_RATE`/`BUCKET_TTL` configure that one policy globally, not per-route.
 
 ## Future Improvements
 
 Roadmap, roughly in priority order:
 
-1. **Configurable rate limits** — move `capacity`/`refillRate` into environment variables or a config file instead of hardcoding them in `policies.js`.
-2. **Automated testing** — unit tests for `tokenBucketService.js` (algorithm correctness, retry/atomicity behavior) and integration tests for the HTTP layer (e.g. with Jest + Supertest).
+1. **Per-route/per-tier policies** — extend `policies.js` to support multiple named policies (not just one global `demoPolicy`), so different routes or user tiers can have different `capacity`/`refillRate`/`ttlSeconds`.
+2. **Automated testing** — unit tests for `tokenBucketService.js` (algorithm correctness, retry/atomicity behavior) and `rateLimiterConfig.js` (validation/fail-fast behavior), plus integration tests for the HTTP layer (e.g. with Jest + Supertest).
 3. **GitHub Actions CI/CD** — lint, test, and build the Docker image automatically on every push/PR.
 4. **Structured logging** (Pino or Winston) — replace `console.log`/`console.error` with structured, leveled logs suitable for aggregation.
 5. **JWT authentication example** — demonstrate rate limiting per authenticated user (via a decoded JWT claim) instead of only by IP.
@@ -245,7 +263,7 @@ Roadmap, roughly in priority order:
 5. What a `WatchError` means, why it happens, and why the fix is "retry with a fresh read" rather than "fail immediately."
 6. Why retries are capped (`MAX_RETRIES = 3`) instead of retried indefinitely, and what happens when retries are exhausted.
 7. Why the bucket is stored as a Redis Hash (`HGETALL`/`HSET`) rather than a JSON string blob, and the tradeoffs of each.
-8. Why the TTL is set to `2 × (capacity / refillRate)` and what would happen if it were too short or omitted entirely.
+8. Why the Redis bucket TTL is now an independently configurable value (`BUCKET_TTL`) rather than derived from capacity/refill rate, and the tradeoff that introduces (the three values can drift out of sync if changed independently without thinking about it).
 9. The known limitation of running `WATCH` transactions over a single shared Redis connection, and how you'd fix it (isolated connections per request, or a Lua script).
 10. Why `reconnectStrategy: false` was chosen for the Redis client, and the tradeoff between "fail fast at startup" and "auto-heal after a later outage."
 11. How the graceful shutdown sequence works (`SIGINT`/`SIGTERM` → stop accepting new connections → let in-flight requests finish → disconnect Redis → exit) and why the ordering matters.
@@ -258,6 +276,8 @@ Roadmap, roughly in priority order:
 18. Why Nginx sits in front of the app instead of exposing the app directly, both for this project and in general production setups.
 19. How Docker Compose's `depends_on` with `condition: service_healthy` differs from a plain `depends_on`, and why Redis specifically needed a healthcheck.
 20. What would need to change to run this system with real horizontal scaling (multiple app replicas) — and why it would work with almost no code changes, thanks to the Redis-backed design.
+21. Why `rateLimiterConfig.js` validates and fails fast (throwing at startup) instead of silently falling back to defaults when an env var is present but invalid, and why that matters more in production than in local development.
+22. Why `tokenBucketService.js` never reads `process.env` directly, and how that design (config flows in only through the `policy` object) makes it easy to add future parameters like burst size or per-route policies without touching the algorithm.
 
 ## Lessons Learned
 
@@ -271,3 +291,4 @@ Building ThrottleX reinforced several core backend engineering concepts:
 - **Separation of concerns pays off across incremental changes.** Because business logic (`tokenBucketService.js`), infrastructure (`redis/`), and delivery (`routes/`, `middleware/`) were kept in distinct modules from the start, later changes — swapping JSON storage for Redis Hashes, adding metrics, adding Docker — were each isolated, low-risk edits rather than risky rewrites.
 - **Production readiness is a checklist, not a single feature.** Graceful shutdown, centralized error handling, health checks, and hiding internal errors from clients are all small individually, but together they're the difference between a demo and something you'd actually deploy.
 - **Infrastructure-as-config (Docker Compose, Nginx, Prometheus/Grafana provisioning) removes "works on my machine" risk.** Defining the entire stack — including dashboard and datasource provisioning — as versioned files means anyone can reproduce the exact same running system with one command.
+- **A single, validated configuration module beats scattered `process.env` reads.** Centralizing `BUCKET_CAPACITY`/`REFILL_RATE`/`BUCKET_TTL` into one frozen, validated object (`rateLimiterConfig.js`) — consumed only by `policies.js` — meant the core algorithm (`tokenBucketService.js`) never needed to know configuration even exists. It also made "fail fast on bad config" a one-line check instead of a scattered set of ad-hoc guards, and made it obvious that decoupling the TTL from capacity/refill rate was a deliberate tradeoff, not an oversight.
