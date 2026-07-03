@@ -24,7 +24,7 @@ async function consume(identifier, policy) {
 }
 
 async function attemptConsume(key, policy) {
-  const { capacity, refillRate } = policy;
+  const { capacity, refillRate, ttlSeconds } = policy;
 
   await redisClient.watch(key);
 
@@ -41,8 +41,6 @@ async function attemptConsume(key, policy) {
   const tokensAfterConsume = allowed ? refilledTokens - 1 : refilledTokens;
   // Ceil so a client that waits exactly retryAfter seconds always has a token.
   const retryAfter = allowed ? 0 : Math.ceil((1 - refilledTokens) / refillRate);
-
-  const ttlSeconds = Math.ceil((2 * capacity) / refillRate);
 
   // WATCH makes this HSET+EXPIRE fail with WatchError if the key changed
   // since the HGETALL above, instead of silently overwriting a concurrent update.
