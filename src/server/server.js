@@ -1,6 +1,7 @@
 const app = require('./app');
 const config = require('../config/env');
 const { connectRedis, disconnectRedis } = require('../redis/connection');
+const { closeIsolatedPool } = require('../services/tokenBucketService');
 
 let server;
 
@@ -40,6 +41,8 @@ function shutdown(signal) {
     console.log('HTTP server closed');
     await disconnectRedis();
     console.log('Redis disconnected');
+    await closeIsolatedPool();
+    console.log('Redis isolated pool closed');
     process.exit(0);
   });
 }
