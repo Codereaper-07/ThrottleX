@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ThrottleX — Distributed Rate Limiter</title>
+<meta name="description" content="Production-ready distributed rate limiter built with Node.js, Redis, Docker, Prometheus and Grafana." />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%236366f1'/%3E%3Cpath d='M8 7h8l-4 4.5h3L9 18l1.2-6.5H7z' fill='white'/%3E%3C/svg%3E" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        fontFamily: {
+          sans: ['Inter', 'ui-sans-serif', 'system-ui'],
+          mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
+        },
+        colors: {
+          base: {
+            950: '#0a0b0f',
+            900: '#111318',
+            800: '#181b22',
+            700: '#242832',
+          },
+        },
+      },
+    },
+  };
+</script>
+<style>
+  html { scroll-behavior: smooth; }
+  body { background-color: #0a0b0f; }
+  section { scroll-margin-top: 4.5rem; }
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .fade-in { animation: fadeIn 0.6s ease-out both; }
+  .fade-in-delay-1 { animation: fadeIn 0.6s ease-out 0.08s both; }
+  .fade-in-delay-2 { animation: fadeIn 0.6s ease-out 0.16s both; }
+  .hover-lift { transition: transform 0.15s ease, border-color 0.15s ease; }
+  .hover-lift:hover { transform: translateY(-3px); }
+  ::-webkit-scrollbar { width: 10px; }
+  ::-webkit-scrollbar-track { background: #0a0b0f; }
+  ::-webkit-scrollbar-thumb { background: #242832; border-radius: 9999px; }
+</style>
+</head>
+<body class="bg-base-950 text-neutral-200 font-sans antialiased">
+
+  <!-- Nav -->
+  <header class="sticky top-0 z-50 backdrop-blur bg-base-950/80 border-b border-base-700">
+    <div class="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
+      <a href="#top" class="flex items-center gap-2 font-semibold text-white">
+        <span class="inline-flex h-7 w-7 items-center justify-center rounded-md bg-indigo-500 text-white text-sm font-bold">T</span>
+        ThrottleX
+      </a>
+      <nav class="hidden md:flex items-center gap-8 text-sm text-neutral-400">
+        <a href="#features" class="hover:text-white transition-colors">Features</a>
+        <a href="#stack" class="hover:text-white transition-colors">Stack</a>
+        <a href="#playground" class="hover:text-white transition-colors">API Playground</a>
+        <a href="#dashboard" class="hover:text-white transition-colors">Dashboard</a>
+      </nav>
+      <a href="https://github.com/Codereaper-07/ThrottleX" target="_blank" rel="noopener"
+         class="inline-flex items-center gap-2 text-sm font-medium border border-base-700 rounded-md px-3 py-1.5 hover:border-neutral-500 hover-lift">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M12 .5C5.65.5.5 5.65.5 12c0 5.09 3.29 9.4 7.86 10.93.57.1.78-.25.78-.55 0-.27-.01-1.17-.02-2.12-3.2.7-3.88-1.36-3.88-1.36-.52-1.34-1.28-1.69-1.28-1.69-1.04-.72.08-.7.08-.7 1.15.08 1.76 1.19 1.76 1.19 1.03 1.76 2.7 1.25 3.36.96.1-.75.4-1.25.73-1.54-2.56-.29-5.25-1.28-5.25-5.7 0-1.26.45-2.29 1.19-3.09-.12-.29-.52-1.47.11-3.06 0 0 .97-.31 3.18 1.18a11.1 11.1 0 0 1 5.8 0c2.2-1.49 3.17-1.18 3.17-1.18.64 1.59.24 2.77.12 3.06.74.8 1.19 1.83 1.19 3.09 0 4.43-2.7 5.4-5.27 5.69.42.36.78 1.08.78 2.18 0 1.57-.02 2.84-.02 3.23 0 .3.21.66.79.55A10.52 10.52 0 0 0 23.5 12c0-6.35-5.15-11.5-11.5-11.5Z"/></svg>
+        GitHub
+      </a>
+    </div>
+  </header>
+
+  <!-- Section 1: Hero -->
+  <section id="top" class="max-w-6xl mx-auto px-6 pt-16 pb-14 grid md:grid-cols-2 gap-12 items-center">
+    <div class="fade-in">
+      <div class="inline-flex items-center gap-2 text-xs font-medium text-indigo-300 bg-indigo-500/10 border border-indigo-500/20 rounded-full px-3 py-1 mb-5">
+        <span class="h-1.5 w-1.5 rounded-full bg-indigo-400"></span>
+        Backend infrastructure project
+      </div>
+      <h1 class="text-4xl sm:text-5xl font-extrabold text-white tracking-tight mb-4">ThrottleX</h1>
+      <p class="text-lg text-neutral-300 mb-3">
+        Production-ready distributed rate limiter built with Node.js, Redis, Docker, Prometheus and Grafana.
+      </p>
+      <p class="text-sm text-neutral-500 mb-8 max-w-md">
+        Demonstrates distributed rate limiting with atomic Redis transactions and real-time monitoring — enforced consistently across every instance behind the load balancer, not just per-process.
+      </p>
+      <div class="flex flex-wrap gap-3">
+        <a href="#playground" class="hover-lift inline-flex items-center justify-center rounded-md bg-indigo-500 text-white text-sm font-semibold px-4 py-2.5 hover:bg-indigo-400">
+          Live Demo
+        </a>
+        <a href="https://github.com/Codereaper-07/ThrottleX" target="_blank" rel="noopener"
+           class="hover-lift inline-flex items-center justify-center rounded-md border border-base-700 text-sm font-semibold px-4 py-2.5 hover:border-neutral-500">
+          GitHub
+        </a>
+        <a href="#dashboard" class="hover-lift inline-flex items-center justify-center rounded-md border border-base-700 text-sm font-semibold px-4 py-2.5 hover:border-neutral-500">
+          Live Dashboard
+        </a>
+      </div>
+    </div>
+
+    <!-- Architecture diagram -->
+    <div class="fade-in-delay-1 flex flex-col items-center gap-1.5">
+      <template id="arch-node-tpl"></template>
+      <div class="w-full max-w-[280px] rounded-lg border border-base-700 bg-base-900 px-4 py-2.5 text-center text-sm font-medium text-neutral-200 hover-lift">Client</div>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" class="text-neutral-600"><path d="M12 4v14m0 0-5-5m5 5 5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <div class="w-full max-w-[280px] rounded-lg border border-base-700 bg-base-900 px-4 py-2.5 text-center text-sm font-medium text-neutral-200 hover-lift">Nginx</div>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" class="text-neutral-600"><path d="M12 4v14m0 0-5-5m5 5 5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <div class="w-full max-w-[280px] rounded-lg border border-base-700 bg-base-900 px-4 py-2.5 text-center text-sm font-medium text-neutral-200 hover-lift">Express API</div>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" class="text-neutral-600"><path d="M12 4v14m0 0-5-5m5 5 5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <div class="w-full max-w-[280px] rounded-lg border border-indigo-500/40 bg-indigo-500/10 px-4 py-2.5 text-center text-sm font-medium text-indigo-200 hover-lift">ThrottleX Middleware</div>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" class="text-neutral-600"><path d="M12 4v14m0 0-5-5m5 5 5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <div class="w-full max-w-[280px] rounded-lg border border-base-700 bg-base-900 px-4 py-2.5 text-center text-sm font-medium text-neutral-200 hover-lift">Redis</div>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" class="text-neutral-600"><path d="M12 4v14m0 0-5-5m5 5 5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <div class="w-full max-w-[280px] rounded-lg border border-base-700 bg-base-900 px-4 py-2.5 text-center text-sm font-medium text-neutral-200 hover-lift">Prometheus</div>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" class="text-neutral-600"><path d="M12 4v14m0 0-5-5m5 5 5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <div class="w-full max-w-[280px] rounded-lg border border-base-700 bg-base-900 px-4 py-2.5 text-center text-sm font-medium text-neutral-200 hover-lift">Grafana</div>
+    </div>
+  </section>
+
+  <!-- Section 2: Features -->
+  <section id="features" class="max-w-6xl mx-auto px-6 py-14 border-t border-base-800">
+    <h2 class="text-xl font-bold text-white mb-8">Engineering highlights</h2>
+    <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+
+      <div class="hover-lift rounded-lg border border-base-700 bg-base-900 p-5">
+        <svg class="text-indigo-400 mb-3" width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M4 6h16M6 6l1 13a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M9 11h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        <h3 class="font-semibold text-white text-sm mb-1">Token Bucket Algorithm</h3>
+        <p class="text-sm text-neutral-500">Smooth, time-based refill that allows short bursts without abrupt window resets.</p>
+      </div>
+
+      <div class="hover-lift rounded-lg border border-base-700 bg-base-900 p-5">
+        <svg class="text-indigo-400 mb-3" width="22" height="22" viewBox="0 0 24 24" fill="none"><rect x="5" y="11" width="14" height="9" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M8 11V7a4 4 0 1 1 8 0v4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        <h3 class="font-semibold text-white text-sm mb-1">Redis Optimistic Locking</h3>
+        <p class="text-sm text-neutral-500">WATCH/MULTI/EXEC on isolated connections keeps concurrent bucket updates atomic.</p>
+      </div>
+
+      <div class="hover-lift rounded-lg border border-base-700 bg-base-900 p-5">
+        <svg class="text-indigo-400 mb-3" width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M12 3 3 7.5 12 12l9-4.5L12 3Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M3 7.5v9L12 21l9-4.5v-9" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M12 12v9" stroke="currentColor" stroke-width="1.6"/></svg>
+        <h3 class="font-semibold text-white text-sm mb-1">Dockerized Deployment</h3>
+        <p class="text-sm text-neutral-500">One command starts the app, Redis, Nginx, Prometheus and Grafana together.</p>
+      </div>
+
+      <div class="hover-lift rounded-lg border border-base-700 bg-base-900 p-5">
+        <svg class="text-indigo-400 mb-3" width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M3 17V9m6 8V5m6 12v-5m6 5V3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        <h3 class="font-semibold text-white text-sm mb-1">Prometheus Monitoring</h3>
+        <p class="text-sm text-neutral-500">Custom counters and histograms expose traffic, block rate and latency.</p>
+      </div>
+
+      <div class="hover-lift rounded-lg border border-base-700 bg-base-900 p-5">
+        <svg class="text-indigo-400 mb-3" width="22" height="22" viewBox="0 0 24 24" fill="none"><rect x="3" y="3" width="8" height="8" rx="1.5" stroke="currentColor" stroke-width="1.6"/><rect x="13" y="3" width="8" height="5" rx="1.5" stroke="currentColor" stroke-width="1.6"/><rect x="13" y="10" width="8" height="11" rx="1.5" stroke="currentColor" stroke-width="1.6"/><rect x="3" y="13" width="8" height="8" rx="1.5" stroke="currentColor" stroke-width="1.6"/></svg>
+        <h3 class="font-semibold text-white text-sm mb-1">Grafana Dashboard</h3>
+        <p class="text-sm text-neutral-500">Auto-provisioned datasource and dashboard — no manual setup required.</p>
+      </div>
+
+      <div class="hover-lift rounded-lg border border-base-700 bg-base-900 p-5">
+        <svg class="text-indigo-400 mb-3" width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M12 3 4 6.5v5c0 5 3.4 8.7 8 9.5 4.6-.8 8-4.5 8-9.5v-5L12 3Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="m9 12 2 2 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <h3 class="font-semibold text-white text-sm mb-1">Production-ready Backend</h3>
+        <p class="text-sm text-neutral-500">Graceful shutdown, centralized error handling, and fail-fast configuration.</p>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- Section 3: Tech Stack -->
+  <section id="stack" class="max-w-6xl mx-auto px-6 py-14 border-t border-base-800">
+    <h2 class="text-xl font-bold text-white mb-8">Tech stack</h2>
+    <div class="grid grid-cols-4 md:grid-cols-8 gap-4">
+      <div class="hover-lift flex flex-col items-center gap-2 rounded-lg border border-base-700 bg-base-900 p-4">
+        <img src="https://cdn.simpleicons.org/nodedotjs/white" width="28" height="28" alt="Node.js" loading="lazy" />
+        <span class="text-xs text-neutral-500">Node.js</span>
+      </div>
+      <div class="hover-lift flex flex-col items-center gap-2 rounded-lg border border-base-700 bg-base-900 p-4">
+        <img src="https://cdn.simpleicons.org/express/white" width="28" height="28" alt="Express.js" loading="lazy" />
+        <span class="text-xs text-neutral-500">Express</span>
+      </div>
+      <div class="hover-lift flex flex-col items-center gap-2 rounded-lg border border-base-700 bg-base-900 p-4">
+        <img src="https://cdn.simpleicons.org/redis/white" width="28" height="28" alt="Redis" loading="lazy" />
+        <span class="text-xs text-neutral-500">Redis</span>
+      </div>
+      <div class="hover-lift flex flex-col items-center gap-2 rounded-lg border border-base-700 bg-base-900 p-4">
+        <img src="https://cdn.simpleicons.org/docker/white" width="28" height="28" alt="Docker" loading="lazy" />
+        <span class="text-xs text-neutral-500">Docker</span>
+      </div>
+      <div class="hover-lift flex flex-col items-center gap-2 rounded-lg border border-base-700 bg-base-900 p-4">
+        <img src="https://cdn.simpleicons.org/nginx/white" width="28" height="28" alt="Nginx" loading="lazy" />
+        <span class="text-xs text-neutral-500">Nginx</span>
+      </div>
+      <div class="hover-lift flex flex-col items-center gap-2 rounded-lg border border-base-700 bg-base-900 p-4">
+        <img src="https://cdn.simpleicons.org/prometheus/white" width="28" height="28" alt="Prometheus" loading="lazy" />
+        <span class="text-xs text-neutral-500">Prometheus</span>
+      </div>
+      <div class="hover-lift flex flex-col items-center gap-2 rounded-lg border border-base-700 bg-base-900 p-4">
+        <img src="https://cdn.simpleicons.org/grafana/white" width="28" height="28" alt="Grafana" loading="lazy" />
+        <span class="text-xs text-neutral-500">Grafana</span>
+      </div>
+      <div class="hover-lift flex flex-col items-center gap-2 rounded-lg border border-base-700 bg-base-900 p-4">
+        <img src="https://cdn.simpleicons.org/tailwindcss/white" width="28" height="28" alt="Tailwind CSS" loading="lazy" />
+        <span class="text-xs text-neutral-500">Tailwind</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Section 4: Live API Playground -->
+  <section id="playground" class="max-w-6xl mx-auto px-6 py-14 border-t border-base-800">
+    <h2 class="text-xl font-bold text-white mb-1">Live API playground</h2>
+    <p class="text-sm text-neutral-500 mb-6">Calls the real backend running this page — nothing here is mocked.</p>
+
+    <div class="flex flex-wrap gap-3 mb-6">
+      <button onclick="hitHealth()" class="playground-btn hover-lift inline-flex items-center gap-2 rounded-md bg-base-900 border border-base-700 text-sm font-medium px-4 py-2.5 hover:border-neutral-500">
+        Health Check
+      </button>
+      <button onclick="hitSingle()" class="playground-btn hover-lift inline-flex items-center gap-2 rounded-md bg-indigo-500 text-white text-sm font-semibold px-4 py-2.5 hover:bg-indigo-400">
+        Single Request
+      </button>
+      <button onclick="hitBurst()" class="playground-btn hover-lift inline-flex items-center gap-2 rounded-md bg-base-900 border border-base-700 text-sm font-medium px-4 py-2.5 hover:border-neutral-500">
+        Burst Test (6 Requests)
+      </button>
+      <button onclick="resetPlayground()" class="playground-btn hover-lift inline-flex items-center gap-2 rounded-md bg-base-900 border border-base-700 text-sm font-medium px-4 py-2.5 hover:border-neutral-500">
+        Clear Results
+      </button>
+      <span id="loading-indicator" class="hidden items-center gap-2 text-sm text-neutral-500 self-center">
+        <svg class="animate-spin" width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2" opacity="0.25"/><path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        Requesting…
+      </span>
+    </div>
+
+    <p class="text-xs text-neutral-600 mb-6 max-w-xl">
+      Note: The Redis-backed token bucket refills automatically over time, matching production behavior. "Clear Results" only clears the displayed response.
+    </p>
+
+    <div id="burst-results" class="hidden flex flex-wrap gap-2 mb-6"></div>
+
+    <div class="grid md:grid-cols-2 gap-4">
+      <div class="rounded-lg border border-base-700 bg-base-900 overflow-hidden">
+        <div class="flex items-center justify-between px-4 py-2.5 border-b border-base-700">
+          <span class="text-xs font-semibold text-neutral-400 uppercase tracking-wide">Response</span>
+          <span id="status-badge" class="text-xs font-mono font-semibold px-2 py-0.5 rounded bg-base-800 text-neutral-500">—</span>
+        </div>
+        <pre id="response-json" class="text-xs font-mono text-neutral-300 p-4 overflow-auto max-h-64 leading-relaxed">Run a request above to see the response here.</pre>
+      </div>
+
+      <div class="rounded-lg border border-base-700 bg-base-900 overflow-hidden">
+        <div class="px-4 py-2.5 border-b border-base-700">
+          <span class="text-xs font-semibold text-neutral-400 uppercase tracking-wide">Details</span>
+        </div>
+        <div class="p-4 space-y-4">
+          <div class="grid grid-cols-2 gap-3">
+            <div class="rounded-md bg-base-800 px-3 py-2">
+              <div class="text-[11px] text-neutral-500 mb-0.5">Remaining Tokens</div>
+              <div id="remaining-tokens" class="text-lg font-mono font-semibold text-white">—</div>
+            </div>
+            <div class="rounded-md bg-base-800 px-3 py-2">
+              <div class="text-[11px] text-neutral-500 mb-0.5">Retry After</div>
+              <div id="retry-after" class="text-lg font-mono font-semibold text-white">—</div>
+            </div>
+          </div>
+          <div>
+            <div class="text-[11px] text-neutral-500 mb-1.5">Response Headers</div>
+            <div id="response-headers" class="text-xs font-mono text-neutral-400 space-y-0.5 max-h-32 overflow-auto">—</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Section 5: Live Dashboard -->
+  <section id="dashboard" class="max-w-6xl mx-auto px-6 py-14 border-t border-base-800">
+    <h2 class="text-xl font-bold text-white mb-1">Live dashboard</h2>
+    <p class="text-sm text-neutral-500 mb-6">Real-time Prometheus metrics visualized through Grafana.</p>
+
+    <div class="rounded-lg border border-base-700 bg-base-900 p-2 hover-lift">
+      <img
+        src="/images/grafana-dashboard-preview.png"
+        alt="ThrottleX Grafana dashboard showing request rate, allowed vs blocked traffic, latency and resource usage panels"
+        width="1600"
+        height="1100"
+        class="w-full h-auto rounded-md"
+        loading="lazy" />
+    </div>
+
+    <p class="text-sm text-neutral-500 mt-4 mb-5">
+      Preview of the live monitoring dashboard. Click below to open the interactive Grafana dashboard.
+    </p>
+
+    <a id="dashboard-link" href="#" target="_blank" rel="noopener"
+       class="hover-lift inline-flex items-center justify-center rounded-md bg-indigo-500 text-white text-sm font-semibold px-6 py-3 hover:bg-indigo-400">
+      Open Live Dashboard
+    </a>
+  </section>
+
+  <!-- Section 6: Footer -->
+  <footer class="border-t border-base-800">
+    <div class="max-w-6xl mx-auto px-6 py-8 flex flex-col md:flex-row items-center justify-between gap-4 text-sm text-neutral-500">
+      <div class="flex items-center gap-2">
+        <span class="inline-flex h-5 w-5 items-center justify-center rounded bg-indigo-500 text-white text-[11px] font-bold">T</span>
+        <span class="text-neutral-400">ThrottleX</span>
+        <span class="text-neutral-700">·</span>
+        <span>v1.0.0</span>
+        <span class="text-neutral-700">·</span>
+        <span>License: ISC</span>
+      </div>
+      <div class="flex items-center gap-5">
+        <a href="https://github.com/Codereaper-07/ThrottleX" target="_blank" rel="noopener" class="hover:text-white transition-colors">GitHub Repository</a>
+        <span class="text-neutral-700 hidden md:inline">·</span>
+        <span>Node.js · Express · Redis · Docker · Nginx · Prometheus · Grafana</span>
+        <span class="text-neutral-700 hidden md:inline">·</span>
+        <span>By Kanishk Kaushik</span>
+      </div>
+    </div>
+  </footer>
+
+<script>
+  // ---- Live dashboard link ----
+  // Grafana runs on its own port outside Nginx, so the link is built from
+  // the current hostname rather than hardcoded, keeping it correct across
+  // localhost, LAN, or any other deployment host.
+  (function () {
+    const grafanaOrigin = `${window.location.protocol}//${window.location.hostname}:3001`;
+    const dashboardPath = '/d/throttlex-overview/throttlex-overview?orgId=1&kiosk';
+    document.getElementById('dashboard-link').href = grafanaOrigin + dashboardPath;
+  })();
+
+  // ---- API playground ----
+  const statusBadge = document.getElementById('status-badge');
+  const responseJson = document.getElementById('response-json');
+  const remainingTokensEl = document.getElementById('remaining-tokens');
+  const retryAfterEl = document.getElementById('retry-after');
+  const headersEl = document.getElementById('response-headers');
+  const loadingIndicator = document.getElementById('loading-indicator');
+  const burstResultsEl = document.getElementById('burst-results');
+  const buttons = document.querySelectorAll('.playground-btn');
+
+  function setLoading(isLoading) {
+    loadingIndicator.classList.toggle('hidden', !isLoading);
+    loadingIndicator.classList.toggle('flex', isLoading);
+    buttons.forEach((btn) => { btn.disabled = isLoading; btn.classList.toggle('opacity-50', isLoading); });
+  }
+
+  function renderResponse(res, body) {
+    const isSuccess = res.status >= 200 && res.status < 300;
+    const isBlocked = res.status === 429;
+
+    statusBadge.textContent = `${res.status} ${res.statusText}`;
+    statusBadge.className = 'text-xs font-mono font-semibold px-2 py-0.5 rounded ' +
+      (isBlocked ? 'bg-red-500/10 text-red-400' : isSuccess ? 'bg-emerald-500/10 text-emerald-400' : 'bg-base-800 text-neutral-400');
+
+    responseJson.textContent = JSON.stringify(body, null, 2);
+
+    const remaining = res.headers.get('x-ratelimit-remaining');
+    const retryAfter = res.headers.get('retry-after');
+    remainingTokensEl.textContent = remaining ?? '—';
+    retryAfterEl.textContent = retryAfter ? `${retryAfter}s` : '—';
+
+    const headerLines = [];
+    res.headers.forEach((value, key) => headerLines.push(`<div><span class="text-neutral-600">${key}:</span> ${value}</div>`));
+    headersEl.innerHTML = headerLines.join('') || '—';
+  }
+
+  async function callApi(path) {
+    const res = await fetch(path);
+    let body;
+    try { body = await res.json(); } catch { body = {}; }
+    return { res, body };
+  }
+
+  async function hitHealth() {
+    burstResultsEl.classList.add('hidden');
+    setLoading(true);
+    try {
+      const { res, body } = await callApi('/health');
+      renderResponse(res, body);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function hitSingle() {
+    burstResultsEl.classList.add('hidden');
+    setLoading(true);
+    try {
+      const { res, body } = await callApi('/limited');
+      renderResponse(res, body);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function hitBurst() {
+    burstResultsEl.classList.remove('hidden');
+    burstResultsEl.innerHTML = '';
+    setLoading(true);
+    try {
+      for (let i = 1; i <= 6; i += 1) {
+        const { res, body } = await callApi('/limited');
+        const isBlocked = res.status === 429;
+        const chip = document.createElement('span');
+        chip.className = 'text-xs font-mono font-semibold px-2.5 py-1 rounded ' +
+          (isBlocked ? 'bg-red-500/10 text-red-400' : 'bg-emerald-500/10 text-emerald-400');
+        chip.textContent = `#${i} → ${res.status}`;
+        burstResultsEl.appendChild(chip);
+        renderResponse(res, body);
+      }
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function resetPlayground() {
+    burstResultsEl.classList.add('hidden');
+    burstResultsEl.innerHTML = '';
+    statusBadge.textContent = '—';
+    statusBadge.className = 'text-xs font-mono font-semibold px-2 py-0.5 rounded bg-base-800 text-neutral-500';
+    responseJson.textContent = 'Run a request above to see the response here.';
+    remainingTokensEl.textContent = '—';
+    retryAfterEl.textContent = '—';
+    headersEl.textContent = '—';
+  }
+</script>
+</body>
+</html>

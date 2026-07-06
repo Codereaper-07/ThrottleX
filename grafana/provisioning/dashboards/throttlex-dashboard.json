@@ -4,7 +4,7 @@
   "tags": ["throttlex"],
   "timezone": "browser",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "refresh": "5s",
   "time": { "from": "now-15m", "to": "now" },
   "panels": [
@@ -17,8 +17,8 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum(http_requests_total) by (route, status)",
-          "legendFormat": "{{route}} [{{status}}]"
+          "expr": "sum(http_requests_total{route=~\"/|/health|/limited\"}) by (route)",
+          "legendFormat": "{{route}}"
         }
       ]
     },
