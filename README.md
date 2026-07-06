@@ -166,29 +166,6 @@ ThrottleX is configured entirely through environment variables, validated at sta
 - **`/metrics` is protected**: it's blocked at the Nginx layer (`403` on port `8080`). Prometheus is unaffected, since it scrapes the app directly over the internal Docker network.
 - **The Grafana dashboard is publicly viewable, read-only**: anonymous access is enabled and pinned to the `Viewer` role, so anyone can see live metrics without logging in, but can't edit or save anything. Editing still requires the admin credentials configured in `.env`.
 
-## Known Limitations
-
-- **No automated test suite.** `tests/` exists but is currently empty; verification has been manual.
-- **Single global rate-limit policy.** Only one policy exists, applied to `/limited`; there's no per-route or per-user-tier configuration yet.
-- **No automatic Redis reconnection after startup.** The client fails fast if Redis is unreachable at boot (by design), but won't reconnect on its own if Redis drops after the app is already running — that requires an external restart.
-- **No authentication on public endpoints.** `/`, `/health`, and `/limited` have no auth layer. `/metrics` is restricted at the network layer (Nginx), but the underlying Express endpoint itself has none either.
-
-## Future Improvements
-
-1. Per-route / per-tier rate-limit policies
-2. Automated test suite (unit + integration)
-3. CI/CD via GitHub Actions
-4. Structured logging (Pino or Winston)
-5. JWT-based rate limiting per authenticated user
-6. Multi-instance deployment to validate horizontal scaling
-7. Redis Cluster support
-8. Load testing (k6 or autocannon)
-9. Kubernetes deployment manifests / Helm chart
-10. Prometheus/Grafana alerting rules
-11. Percentile latency panels (p50/p95/p99) and per-identifier breakdowns
-12. API versioning (`/v1`)
-13. OpenAPI/Swagger documentation
-
 ## License
 
 Licensed under the [ISC License](https://opensource.org/license/isc-license-txt), as declared in `package.json`.
