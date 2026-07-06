@@ -1,51 +1,194 @@
 # ThrottleX
 
-ThrottleX is a production-ready distributed API rate limiting service.
+Production-ready distributed API rate limiter built with Node.js, Redis, Docker, Prometheus, and Grafana.
 
-## Docker
+![ThrottleX landing page](docs/screenshots/hero.png)
 
-Before starting the stack, copy the example environment file and set the Grafana admin credentials (required — see [Monitoring security](#monitoring-security) below):
+**Contents:** [Overview](#overview) · [Key Features](#key-features) · [Architecture](#architecture) · [Screenshots](#screenshots) · [Tech Stack](#tech-stack) · [Project Structure](#project-structure) · [Getting Started](#getting-started) · [Configuration](#configuration) · [API Endpoints](#api-endpoints) · [Monitoring](#monitoring) · [Known Limitations](#known-limitations) · [Future Improvements](#future-improvements) · [License](#license)
+
+## Overview
+
+A single API process can rate-limit clients in memory, but that guarantee breaks the moment more than one instance is running — each process ends up with its own counters, so a client can get *N* requests per instance instead of *N* total. ThrottleX solves this by storing rate-limit state in Redis, shared by every instance of the app, using a **Token Bucket** algorithm with optimistic locking (`WATCH`/`MULTI`/`EXEC`) so concurrent requests can never corrupt a bucket's state. Prometheus and Grafana are integrated end-to-end so the limiter's behavior — traffic volume, block rate, latency — is observable in real time instead of inferred from logs.
+
+## Key Features
+
+- Distributed Token Bucket rate-limiting algorithm
+- Redis-backed shared state across every app instance
+- Concurrency-safe optimistic locking (`WATCH`/`MULTI`/`EXEC` on isolated connections)
+- Configurable limits via environment variables (capacity, refill rate, TTL)
+- Dockerized architecture — app, Redis, Nginx, Prometheus, and Grafana with one command
+- Nginx reverse proxy as the single public entry point
+- Prometheus metrics (custom application metrics + default Node.js/process metrics)
+- Auto-provisioned Grafana dashboard, no manual setup required
+- Protected `/metrics` endpoint (blocked at the Nginx layer, unaffected for Prometheus itself)
+- Health check endpoint reporting live Redis connectivity
+- Graceful shutdown (`SIGINT`/`SIGTERM` → drain requests → close Redis connections)
+
+## Architecture
+
+```mermaid
+flowchart TD
+    Client([Client]) --> Nginx[Nginx reverse proxy]
+    Nginx --> Express[Express API]
+    Express --> Middleware[ThrottleX Middleware<br/>Token Bucket algorithm]
+    Middleware --> Redis[(Redis)]
+    Express --> Prometheus[Prometheus]
+    Prometheus --> Grafana[Grafana]
+```
+
+Requests always enter through Nginx, which forwards everything to the Express app. The app reads and writes rate-limit state in Redis on every request to `/limited`. Prometheus independently scrapes the app's `/metrics` endpoint on a timer (it isn't part of the request path), and Grafana queries Prometheus to render dashboards.
+
+## Screenshots
+
+| Landing Page | API Playground |
+|---|---|
+| ![Landing page](docs/screenshots/landing-page.png) | ![API playground](docs/screenshots/api-playground.png) |
+| Dark-themed landing page with an architecture overview and feature highlights. | Interactive playground that calls the real backend — health checks, single requests, and burst tests against the live rate limiter. |
+
+| Grafana Dashboard |
+|---|
+| ![Grafana dashboard](docs/screenshots/grafana-dashboard.png) |
+| Auto-provisioned dashboard showing request volume by endpoint, allowed vs. blocked traffic, latency, and resource usage. |
+
+## Tech Stack
+
+| Category | Technology |
+|---|---|
+| Backend | Node.js 22, Express 5 |
+| Caching / Data Store | Redis 7 |
+| Monitoring | Prometheus, Grafana OSS, `prom-client` |
+| Infrastructure | Docker, Docker Compose, Nginx |
+| Frontend | Tailwind CSS (CDN), vanilla JavaScript |
+
+## Project Structure
+
+```
+ThrottleX/
+├── src/
+│   ├── config/       # Environment & rate-limiter configuration
+│   ├── errors/       # Custom AppError class
+│   ├── metrics/      # Prometheus metric definitions
+│   ├── middleware/   # Rate limiter, metrics, error handling
+│   ├── redis/        # Redis client & connection lifecycle
+│   ├── routes/       # health, limited, metrics routes
+│   ├── server/       # Express app wiring & process entrypoint
+│   ├── services/     # Token Bucket algorithm
+│   └── utils/        # Small shared helpers
+├── public/           # Static landing page (served by Express)
+├── docker/           # Nginx reverse-proxy config
+├── prometheus/       # Prometheus scrape configuration
+├── grafana/          # Auto-provisioned datasource & dashboard
+├── docs/             # Documentation assets (screenshots)
+├── Dockerfile
+├── docker-compose.yml
+└── README.md
+```
+
+## Getting Started
+
+**1. Clone the repository**
+
+```bash
+git clone https://github.com/Codereaper-07/ThrottleX.git
+cd ThrottleX
+```
+
+**2. Configure environment variables**
 
 ```bash
 cp .env.example .env
-# edit .env and set GF_SECURITY_ADMIN_USER / GF_SECURITY_ADMIN_PASSWORD
 ```
 
-Start the app, Redis, and the Nginx reverse proxy together:
+Edit `.env` and set `GF_SECURITY_ADMIN_USER` / `GF_SECURITY_ADMIN_PASSWORD` — Docker Compose refuses to start Grafana without them (see [Configuration](#configuration)).
+
+**3. Start the stack**
 
 ```bash
 docker compose up --build
 ```
 
-Once running:
+This starts the app, Redis, Nginx, Prometheus, and Grafana together.
 
-- Application: http://localhost:8080
-- Health: http://localhost:8080/health
-- Limited: http://localhost:8080/limited
+**4. Access the application**
 
-`/metrics` is intentionally **not** reachable at `http://localhost:8080/metrics` — see below.
+| Service | URL |
+|---|---|
+| Landing page / API playground | http://localhost:8080 |
+| Health check | http://localhost:8080/health |
+| Rate-limited demo endpoint | http://localhost:8080/limited |
+| Prometheus | http://localhost:9090 |
+| Grafana | http://localhost:3001 |
+
+<details>
+<summary><strong>Running locally without Docker</strong></summary>
+
+Requires a Redis instance reachable from your machine.
+
+```bash
+npm install
+cp .env.example .env   # adjust REDIS_HOST/REDIS_PORT if not running on localhost
+npm run dev             # nodemon, auto-restarts on file changes
+```
+
+</details>
+
+## Configuration
+
+ThrottleX is configured entirely through environment variables, validated at startup so an invalid value fails fast instead of causing silent misbehavior.
+
+| Variable | Default | Description |
+|---|---|---|
+| `PORT` | `3000` | HTTP port the Express server listens on |
+| `REDIS_HOST` | `127.0.0.1` | Redis server hostname |
+| `REDIS_PORT` | `6379` | Redis server port |
+| `BUCKET_CAPACITY` | `5` | Max tokens (burst size) per rate-limit bucket |
+| `REFILL_RATE` | `1` | Tokens refilled per second |
+| `BUCKET_TTL` | `10` | Seconds an idle bucket key survives in Redis before expiring |
+| `GF_SECURITY_ADMIN_USER` | *required* | Grafana admin username |
+| `GF_SECURITY_ADMIN_PASSWORD` | *required* | Grafana admin password |
+
+`BUCKET_CAPACITY`, `REFILL_RATE`, and `BUCKET_TTL` are independent — changing one does not automatically adjust the others.
+
+## API Endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/` | Landing page — static frontend with an embedded live API playground |
+| `GET` | `/health` | Reports service status and live Redis connectivity |
+| `GET` | `/limited` | Demo endpoint protected by the Token Bucket rate limiter — `200` when allowed, `429` with a `Retry-After` header when blocked |
+
+`/metrics` is intentionally excluded — it's a Prometheus scrape target, not a public endpoint (see [Monitoring](#monitoring)).
 
 ## Monitoring
 
-- Prometheus: http://localhost:9090
-- Grafana: http://localhost:3001
+- **Prometheus** scrapes the app's `/metrics` endpoint every 5 seconds, collecting custom metrics (`http_requests_total`, `rate_limit_requests_total`, `http_request_duration_seconds`) alongside default Node.js/process metrics.
+- **Grafana** auto-provisions a datasource and the **ThrottleX Overview** dashboard on startup — no manual setup required.
+- **`/metrics` is protected**: it's blocked at the Nginx layer (`403` on port `8080`). Prometheus is unaffected, since it scrapes the app directly over the internal Docker network.
+- **The Grafana dashboard is publicly viewable, read-only**: anonymous access is enabled and pinned to the `Viewer` role, so anyone can see live metrics without logging in, but can't edit or save anything. Editing still requires the admin credentials configured in `.env`.
 
-### Monitoring security
+## Known Limitations
 
-**`/metrics`** is a Prometheus scrape target, not a public endpoint — it can reveal internal traffic volume and error-rate details. It's blocked at the Nginx layer (`docker/nginx.conf`, `location /metrics { deny all; return 403; }`), so external requests through Nginx (port `8080`) get a `403`. This doesn't affect scraping: Prometheus reaches the app directly over the internal Docker network (`app:3000`, see `prometheus/prometheus.yml`) and never goes through Nginx, so it's unaffected by this restriction.
+- **No automated test suite.** `tests/` exists but is currently empty; verification has been manual.
+- **Single global rate-limit policy.** Only one policy exists, applied to `/limited`; there's no per-route or per-user-tier configuration yet.
+- **No automatic Redis reconnection after startup.** The client fails fast if Redis is unreachable at boot (by design), but won't reconnect on its own if Redis drops after the app is already running — that requires an external restart.
+- **No authentication on public endpoints.** `/`, `/health`, and `/limited` have no auth layer. `/metrics` is restricted at the network layer (Nginx), but the underlying Express endpoint itself has none either.
 
-**Grafana** no longer ships with default `admin`/`admin` credentials. The admin username/password are supplied via `GF_SECURITY_ADMIN_USER` and `GF_SECURITY_ADMIN_PASSWORD` in `.env` (see `.env.example`), passed into the `grafana` service through `docker-compose.yml`. If these aren't set, `docker compose up` fails fast with an explicit error instead of silently falling back to a default password. `.env` is gitignored — never commit real credentials.
+## Future Improvements
 
-For public, read-only access to dashboards, Grafana's **anonymous access** feature is enabled and pinned to the `Viewer` organization role (`GF_AUTH_ANONYMOUS_ENABLED=true`, `GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer` in `docker-compose.yml`). This means:
+1. Per-route / per-tier rate-limit policies
+2. Automated test suite (unit + integration)
+3. CI/CD via GitHub Actions
+4. Structured logging (Pino or Winston)
+5. JWT-based rate limiting per authenticated user
+6. Multi-instance deployment to validate horizontal scaling
+7. Redis Cluster support
+8. Load testing (k6 or autocannon)
+9. Kubernetes deployment manifests / Helm chart
+10. Prometheus/Grafana alerting rules
+11. Percentile latency panels (p50/p95/p99) and per-identifier breakdowns
+12. API versioning (`/v1`)
+13. OpenAPI/Swagger documentation
 
-- Anyone who can reach `http://localhost:3001` sees the auto-provisioned **ThrottleX Overview** dashboard immediately, with no login required.
-- The `Viewer` role structurally cannot edit, save, or create dashboards, or view/change data source configuration — editing still requires signing in with the admin credentials above.
-- The existing auto-provisioned datasource and dashboard (`grafana/provisioning/`) are unchanged and continue to work exactly as before for the admin account.
+## License
 
-This was chosen over Grafana's **Public Dashboards** ("Externally shared dashboards") feature because, while that feature is available in Grafana OSS, enabling it is a manual, per-dashboard action performed via the Grafana UI/API *after* the instance is already running (there's no environment-variable or provisioning-file equivalent) — anonymous `Viewer` access achieves the same "public, read-only, no editing" outcome declaratively, with no manual post-deploy step and no extra moving parts. If you'd prefer a shareable link to a single dashboard instead of making the whole Grafana instance publicly viewable, you can still do this manually: log in as admin, open the dashboard, **Share → Share externally → Anyone with the link**.
-
-> **Migrating an existing deployment?** `GF_SECURITY_ADMIN_USER`/`GF_SECURITY_ADMIN_PASSWORD` are only applied by Grafana the *first time* it initializes its database — on a fresh `grafana-data` volume, both take effect immediately. If Grafana has already run before (an existing `grafana-data` volume with the old default `admin`/`admin` credentials), setting these variables alone will **not** retroactively change the already-created account. Rotate it once with:
-> ```bash
-> docker compose exec grafana grafana cli admin reset-admin-password '<value of GF_SECURITY_ADMIN_PASSWORD from your .env>'
-> ```
-> Note this resets the *password* for the existing admin account only — the *username* stays whatever it already was (typically `admin`) unless you also rename it via Server Admin → Users in the Grafana UI, or start from a fresh volume.
+Licensed under the [ISC License](https://opensource.org/license/isc-license-txt), as declared in `package.json`.
